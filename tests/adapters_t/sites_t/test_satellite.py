@@ -78,7 +78,7 @@ class TestSatelliteAdapter(TestCase):
         self.assertEqual(
             run_async(
                 self.satellite_adapter.deploy_resource,
-                resource_attributes=AttributeDict(drone_uuid="testsite-089123"),
+                resource_attributes=AttributeDict(),
             ),
             AttributeDict(remote_resource_uuid="uuid-new"),
         )
@@ -158,14 +158,13 @@ class TestSatelliteAdapter(TestCase):
         }
         client = self._assert_resource_status(response, ResourceStatus.Deleted)
 
-        # Deleted resources should clear drone UUID and free reservation.
+        # Deleted resources should free the reservation.
         client.set_satellite_parameter.assert_has_awaits(
             [
-                call(self.remote_resource_uuid, "TardisDroneUuid", ""),
                 call(self.remote_resource_uuid, "tardis_reservation_state", "free"),
             ]
         )
-        self.assertEqual(client.set_satellite_parameter.await_count, 2)
+        self.assertEqual(client.set_satellite_parameter.await_count, 1)
 
     def test_resource_status_stopped(self):
         response = {
