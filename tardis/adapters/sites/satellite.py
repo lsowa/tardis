@@ -9,6 +9,7 @@ import aiohttp
 
 from tardis.exceptions.tardisexceptions import TardisResourceStatusUpdateFailed
 from tardis.interfaces.siteadapter import ResourceStatus, SiteAdapter
+from tardis.plugins.sqliteregistry import SqliteRegistry
 from tardis.utilities.attributedict import AttributeDict
 from tardis.utilities.staticmapping import StaticMapping
 
@@ -73,32 +74,17 @@ class SatelliteClient:
 
     async def get_status(self, remote_resource_uuid: str) -> dict:
         """
-        Return host data together with custom parameters and power details.
+        Return host data together with power details.
 
         :param remote_resource_uuid: Satellite identifier of the host.
-        :return: Satellite host data enriched with parameters and power state.
+        :return: Satellite host data enriched with power state.
         """
         async with aiohttp.ClientSession(auth=self.auth) as session:
             host_url = self._host_url(remote_resource_uuid)
             main_task = self._request(session, "GET", host_url)
-            params_task = self._request(session, "GET", f"{host_url}/parameters")
             power_task = self._request(session, "GET", f"{host_url}/power")
-            main_response, param_response, power_response = await asyncio.gather(
-                main_task, params_task, power_task
-            )
+            main_response, power_response = await asyncio.gather(main_task, power_task)
 
-        # Flatten custom parameters for simpler lookups in later calls.
-        parameters = {}
-        for param in param_response.get("results", []):
-            name = param.get("name")
-            if not name:
-                continue
-            if "value" in param:
-                parameters[name] = param["value"]
-            if "id" in param:
-                parameters[f"{name}_id"] = param["id"]
-
-        main_response["parameters"] = parameters
         main_response["power"] = power_response
         return main_response
 
@@ -125,46 +111,6 @@ class SatelliteClient:
             )
         return power_action_result
 
-    async def set_satellite_parameter(
-        self, remote_resource_uuid: str, parameter: str, value: str
-    ) -> None:
-        """
-        Create or update a Satellite host parameter using lower-case
-        string values only and updates its cached status.
-
-        :param remote_resource_uuid: Satellite identifier of the host.
-        :param parameter: Name of the parameter to update.
-        :param value: New parameter value.
-        """
-        value = str(value).lower()
-        status_response = await self.get_status(remote_resource_uuid)
-        parameter_id = status_response.get("parameters", {}).get(f"{parameter}_id")
-
-        async with aiohttp.ClientSession(auth=self.auth) as session:
-            if parameter_id is not None:
-                _ = await self._request(
-                    session,
-                    "PUT",
-                    f"{self._host_url(remote_resource_uuid)}/parameters/{parameter_id}",
-                    json={"value": value},
-                )
-                logger.info(
-                    f"Updated satellite parameter {parameter}"
-                    f"to {value} for {remote_resource_uuid}"
-                )
-            else:
-                _ = await self._request(
-                    session,
-                    "POST",
-                    f"{self._host_url(remote_resource_uuid)}/parameters",
-                    json={"name": parameter, "value": value},
-                )
-                logger.info(
-                    f"Created satellite parameter {parameter} with"
-                    f"value {value} for {remote_resource_uuid}"
-                )
-        await self.get_status(remote_resource_uuid)
-
 
 class SatelliteAdapter(SiteAdapter):
     """
@@ -176,6 +122,15 @@ class SatelliteAdapter(SiteAdapter):
     def __init__(self, machine_type: str, site_name: str):
         self._machine_type = machine_type
         self._site_name = site_name
+
+        try:
+            self.registry = SqliteRegistry()
+        except AttributeError as ae:
+            raise AttributeError(
+                "SatelliteAdapter requires the SqliteRegistry plugin "
+                "(Plugins.SqliteRegistry) to be configured, since it is used "
+                "as the drone database to claim and free hosts."
+            ) from ae
 
         self.client = SatelliteClient(
             host=self.configuration.host,
@@ -212,7 +167,7 @@ class SatelliteAdapter(SiteAdapter):
         :param resource_attributes: Attributes describing the drone to deploy.
         :return: Normalised response containing at least the remote UUID.
         """
-        remote_resource_uuid = await self.get_next_host()
+        remote_resource_uuid = await self.get_next_host(resource_attributes)
         await self.client.set_power(
             state="on", remote_resource_uuid=remote_resource_uuid
         )
@@ -220,30 +175,46 @@ class SatelliteAdapter(SiteAdapter):
         # codeql[py/incorrect-call-arguments]
         return self.handle_response({"remote_resource_uuid": remote_resource_uuid})
 
-    async def get_next_host(self) -> str:
+    async def get_next_host(self, resource_attributes: AttributeDict) -> str:
         """
-        Select the next free host by checking reservation and power state.
+        Select the next free host and atomically claim it in the drone
+        database to avoid double allocation. Double claiming is prevented in two stages:
+        first, `occupied` and `SatelliteAdapter._next_host_lock` ensure that no two
+        coroutines can claim the same host at the same time. Second,
+        `registry.set_remote_resource_uuid` will return False if the host has already
+        been claimed by another drone.
 
-        :return: Identifier of a reserved and powered-off host ready for use.
+        :param resource_attributes: Attributes of the drone claiming a host.
+        :return: Identifier of a claimed and powered-off host ready for use.
         :raises TardisResourceStatusUpdateFailed: If no free host is available.
         """
 
         async with SatelliteAdapter._next_host_lock:
+            occupied = {
+                row["remote_resource_uuid"]
+                for row in await self.registry.async_get_resources(
+                    self.site_name, self.machine_type
+                )
+                if row["remote_resource_uuid"]
+            }
+
             for host in self.configuration.machine_pool:
+                if host in occupied:
+                    continue
+
                 resource_status = await self.client.get_status(host)
-                parameters = resource_status.get("parameters", {})
-                reservation_state = parameters.get("tardis_reservation_state", "free")
-                is_free = reservation_state == "free"
-
                 power_state = resource_status.get("power", {}).get("state")
-                is_powered_off = power_state == "off"
+                if power_state != "off":
+                    continue
 
-                if is_free and is_powered_off:
-                    await self.client.set_satellite_parameter(
-                        host, "tardis_reservation_state", "booting"
-                    )
-                    logger.info(f"Allocated satellite host {host}")
-                    return host
+                claimed = await self.registry.set_remote_resource_uuid(
+                    resource_attributes.drone_uuid, host, self.site_name
+                )
+                if not claimed:
+                    continue
+
+                logger.info(f"Allocated satellite host {host}")
+                return host
 
         logger.info("No free host found, skipping deployment")
         raise TardisResourceStatusUpdateFailed("no free host found")
@@ -252,9 +223,7 @@ class SatelliteAdapter(SiteAdapter):
         self, resource_attributes: AttributeDict
     ) -> AttributeDict:
         """
-        Query Satellite information and translate to ResourceStatus. If the
-        drone is marked as terminating, free the host to be used in the next
-        heartbeat interval.
+        Query Satellite information and translate to ResourceStatus.
         :param resource_attributes: Attributes describing the tracked drone.
         :return: Normalised response containing the translated resource status.
         """
@@ -263,23 +232,10 @@ class SatelliteAdapter(SiteAdapter):
         )
 
         power_state = response.get("power", {}).get("state")
-        reservation_state = response.get("parameters", {}).get(
-            "tardis_reservation_state"
-        )
+        terminating = resource_attributes.get("satellite_terminating", False)
+        previous_status = resource_attributes.get("resource_status")
 
-        status = self._resolve_status(power_state, reservation_state)
-        if status is ResourceStatus.Deleted:
-            await self.client.set_satellite_parameter(
-                resource_attributes.remote_resource_uuid,
-                "tardis_reservation_state",
-                "free",
-            )
-        elif status is ResourceStatus.Running and reservation_state == "booting":
-            await self.client.set_satellite_parameter(
-                resource_attributes.remote_resource_uuid,
-                "tardis_reservation_state",
-                "active",
-            )
+        status = self._resolve_status(power_state, terminating, previous_status)
         return self.handle_response(
             response,
             resource_status=status,
@@ -313,15 +269,12 @@ class SatelliteAdapter(SiteAdapter):
 
     async def terminate_resource(self, resource_attributes: AttributeDict) -> None:
         """
-        Flag a host as terminating so a later status check frees it.
+        Mark the drone as terminating locally so a later status check reports
+        it as deleted.
 
         :param resource_attributes: Attributes describing the drone to retire.
         """
-        await self.client.set_satellite_parameter(
-            resource_attributes.remote_resource_uuid,
-            "tardis_reservation_state",
-            "terminating",
-        )
+        resource_attributes["satellite_terminating"] = True
 
     @contextmanager
     def handle_exceptions(self):
@@ -337,31 +290,36 @@ class SatelliteAdapter(SiteAdapter):
             raise
 
     def _resolve_status(
-        self, power_state: Optional[str], reservation_state: Optional[str]
+        self,
+        power_state: Optional[str],
+        terminating: bool,
+        previous_status: Optional[ResourceStatus],
     ) -> ResourceStatus:
         """
-        Translate raw Satellite flags into the canonical ``ResourceStatus``.
+        Translate the Satellite power state, combined with locally known
+        drone state, into the canonical ``ResourceStatus``.
 
         :param power_state: Reported power state of the host.
-        :param reservation_state: Reservation flag managed via host parameters.
+        :param terminating: Whether ``terminate_resource`` has been called
+        for this drone already.
+        :param previous_status: The ``ResourceStatus`` last reported for this
+        drone, carried forward on ``resource_attributes``.
         :return: Resource status understood by TARDIS.
         """
-        if reservation_state == "booting":
-            # booting hosts report as running once their power state flips to on
-            if power_state == "on":
-                return ResourceStatus.Running
-            return ResourceStatus.Booting
-
         if power_state == "on":
             return ResourceStatus.Running
 
         if power_state == "off":
             # if resource is offline its either in stopping/terminating
             # phase or (still) booting
-            if reservation_state == "terminating":
+            if terminating:
                 return ResourceStatus.Deleted
-            if reservation_state == "active":
-                return ResourceStatus.Stopped
+            if previous_status == ResourceStatus.Booting:
+                return ResourceStatus.Booting
+            return ResourceStatus.Stopped
+
+        if previous_status == ResourceStatus.Booting:
+            return ResourceStatus.Booting
 
         # each other state should be treated as error
         return ResourceStatus.Error
