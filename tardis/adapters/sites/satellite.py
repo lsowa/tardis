@@ -306,14 +306,14 @@ class SatelliteAdapter(SiteAdapter):
         drone, carried forward on ``resource_attributes``.
         :return: Resource status understood by TARDIS.
         """
+        if terminating:
+            return ResourceStatus.Deleted
         if power_state == "on":
             return ResourceStatus.Running
 
         if power_state == "off":
             # if resource is offline its either in stopping/terminating
             # phase or (still) booting
-            if terminating:
-                return ResourceStatus.Deleted
             if previous_status == ResourceStatus.Booting:
                 return ResourceStatus.Booting
             return ResourceStatus.Stopped
