@@ -689,10 +689,13 @@ Satellite Site Adapter
     Drones run as local processes and claim a free remote host from the configured pool. Once a remote host is
     claimed by a drone, the adapter is able to boot and shut down the resource through the Satellite API.
 
-    When a resource is allocated for the first time, it is marked with a ``tardis_reservation_state`` parameter
-    (values ``free``, ``booting``, ``active`` and ``terminating``) in Satellite. ``booting`` and ``terminating`` are used to
-    identify reserved machines that are currently being booted or terminated. This flag prevents double allocation of not-online resources that are still linked to a
-    booting/terminating drone. If TARDIS crashes and its drone database is lost, the parameter has to be reset manually.
+    Host allocation is tracked in TARDIS's own drone database (the
+    :py:class:`~tardis.plugins.sqliteregistry.SqliteRegistry` plugin).
+    A host is claimed by atomically writing its identifier into the requesting drone's database entry, which
+    also prevents double allocation of a host that is still linked to a booting or terminating drone. A host is
+    freed automatically as soon as the corresponding drone's database entry is deleted, which already happens
+    when the drone reaches its final state. Because of this, the ``SqliteRegistry`` plugin has to be enabled
+    for the Satellite adapter to work.
 
 Available adapter configuration options
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -704,7 +707,7 @@ Available adapter configuration options
     +================+==========================================================================================+=================+
     | host           | Hostname of the Satellite server. HTTPS and ``/api/v2/hosts`` are added automatically.   |  **Required**   |
     +----------------+------------------------------------------------------------------------------------------+-----------------+
-    | ca_file       | Path to a CA certificate used to validate the Satellite HTTPS endpoint.                  |  **Required**   |
+    | ca_file        | Path to a CA certificate used to validate the Satellite HTTPS endpoint.                  |  **Required**   |
     +----------------+------------------------------------------------------------------------------------------+-----------------+
     | username       | Satellite account used for API access and the corresponding rights.                      |  **Required**   |
     +----------------+------------------------------------------------------------------------------------------+-----------------+
@@ -712,10 +715,10 @@ Available adapter configuration options
     +----------------+------------------------------------------------------------------------------------------+-----------------+
     | max_age        | The result of Satellite API calls are cached for `max_age` in minutes.                   |  **Required**   |
     +----------------+------------------------------------------------------------------------------------------+-----------------+
-    | machine_pool   | Sequence of Satellite host name prefixes that form the allocation pool.                   |  **Required**   |
+    | machine_pool   | Sequence of Satellite host name prefixes that form the allocation pool.                  |  **Required**   |
     |                | For API calls, each entry is combined with ``domain`` (``<prefix><domain>``).            |                 |
     +----------------+------------------------------------------------------------------------------------------+-----------------+
-    | domain         | DNS suffix appended to each ``machine_pool`` identifier for Satellite host API lookups. |  **Required**   |
+    | domain         | DNS suffix appended to each ``machine_pool`` identifier for Satellite host API lookups.  |  **Required**   |
     +----------------+------------------------------------------------------------------------------------------+-----------------+
     | proxy          | Optional HTTP/HTTPS proxy URL used for Satellite API calls.                              |  Optional       |
     +----------------+------------------------------------------------------------------------------------------+-----------------+
