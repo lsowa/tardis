@@ -5,12 +5,13 @@ from tardis.exceptions.tardisexceptions import TardisResourceStatusUpdateFailed
 from tests.utilities.utilities import run_async
 
 from unittest import TestCase
-from unittest.mock import AsyncMock, call, patch
+from unittest.mock import AsyncMock, patch
 
 
 class TestSatelliteAdapter(TestCase):
     mock_config_patcher = None
     mock_satelliteclient_patcher = None
+    mock_sqliteregistry_patcher = None
 
     @classmethod
     def setUpClass(cls):
@@ -20,15 +21,21 @@ class TestSatelliteAdapter(TestCase):
             "tardis.adapters.sites.satellite.SatelliteClient"
         )
         cls.mock_satelliteclient = cls.mock_satelliteclient_patcher.start()
+        cls.mock_sqliteregistry_patcher = patch(
+            "tardis.adapters.sites.satellite.SqliteRegistry"
+        )
+        cls.mock_sqliteregistry = cls.mock_sqliteregistry_patcher.start()
 
     @classmethod
     def tearDownClass(cls):
         cls.mock_config_patcher.stop()
         cls.mock_satelliteclient_patcher.stop()
+        cls.mock_sqliteregistry_patcher.stop()
 
     def setUp(self):
 
         self.remote_resource_uuid = "uuid-test"
+        self.drone_uuid = "drone-test"
 
         self.config = self.mock_config.return_value
         self.config.TestSite = AttributeDict(
@@ -55,18 +62,22 @@ class TestSatelliteAdapter(TestCase):
         self.client.get_status = AsyncMock(
             return_value={"status": "running", "id": self.remote_resource_uuid}
         )
-
         self.client.set_power = AsyncMock(return_value=None)
-        self.client.set_satellite_parameter = AsyncMock(return_value=None)
 
+        self.registry = self.mock_sqliteregistry.return_value
+        self.registry.async_get_resources = AsyncMock(return_value=[])
+        self.registry.set_remote_resource_uuid = AsyncMock(return_value=True)
+
+        self.mock_sqliteregistry.side_effect = None
         self.satellite_adapter = SatelliteAdapter(
             machine_type="testmachine_type", site_name="TestSite"
         )
-        self.satellite_adapter.get_next_host = AsyncMock(return_value="uuid-new")
 
     def tearDown(self):
         self.mock_satelliteclient.reset_mock()
         self.client.reset_mock()
+        self.mock_sqliteregistry.reset_mock(side_effect=True)
+        self.registry.reset_mock()
 
     def test_machine_type(self):
         self.assertEqual(self.satellite_adapter.machine_type, "testmachine_type")
@@ -74,16 +85,31 @@ class TestSatelliteAdapter(TestCase):
     def test_site_name(self):
         self.assertEqual(self.satellite_adapter.site_name, "TestSite")
 
-    def test_deploy_resource(self):
-        self.assertEqual(
-            run_async(
-                self.satellite_adapter.deploy_resource,
-                resource_attributes=AttributeDict(),
-            ),
-            AttributeDict(remote_resource_uuid="uuid-new"),
-        )
+    def test_missing_sqliteregistry_configuration(self):
+        with patch(
+            "tardis.adapters.sites.satellite.SqliteRegistry",
+            side_effect=AttributeError("Plugins.SqliteRegistry not configured"),
+        ):
+            with self.assertRaises(AttributeError):
+                SatelliteAdapter(machine_type="testmachine_type", site_name="TestSite")
 
-        self.satellite_adapter.get_next_host.assert_awaited_once()
+    def test_deploy_resource(self):
+        resource_attributes = AttributeDict(drone_uuid=self.drone_uuid)
+
+        with patch.object(
+            self.satellite_adapter,
+            "get_next_host",
+            AsyncMock(return_value="uuid-new"),
+        ) as mock_get_next_host:
+            self.assertEqual(
+                run_async(
+                    self.satellite_adapter.deploy_resource,
+                    resource_attributes=resource_attributes,
+                ),
+                AttributeDict(remote_resource_uuid="uuid-new"),
+            )
+
+            mock_get_next_host.assert_awaited_once_with(resource_attributes)
 
         self.client.set_power.assert_awaited_once_with(
             state="on", remote_resource_uuid="uuid-new"
@@ -101,12 +127,91 @@ class TestSatelliteAdapter(TestCase):
             proxy="http://proxy.local:3128",
         )
 
-    def _assert_resource_status(self, response: dict, expected_status: ResourceStatus):
+    def test_get_next_host_claims_free_host(self):
+        self.config.TestSite.machine_pool = ["machine-1"]
+        self.client.get_status.return_value = {"power": {"state": "off"}}
+
+        resource_attributes = AttributeDict(drone_uuid=self.drone_uuid)
+        host = run_async(
+            self.satellite_adapter.get_next_host,
+            resource_attributes=resource_attributes,
+        )
+
+        self.assertEqual(host, "machine-1")
+        self.registry.set_remote_resource_uuid.assert_awaited_once_with(
+            self.drone_uuid, "machine-1", "TestSite"
+        )
+
+    def test_get_next_host_skips_occupied_host(self):
+        self.config.TestSite.machine_pool = ["machine-1", "machine-2"]
+        self.registry.async_get_resources.return_value = [
+            {"remote_resource_uuid": "machine-1"}
+        ]
+        self.client.get_status.return_value = {"power": {"state": "off"}}
+
+        resource_attributes = AttributeDict(drone_uuid=self.drone_uuid)
+        host = run_async(
+            self.satellite_adapter.get_next_host,
+            resource_attributes=resource_attributes,
+        )
+
+        self.assertEqual(host, "machine-2")
+
+    def test_get_next_host_skips_powered_on_host(self):
+        self.config.TestSite.machine_pool = ["machine-1", "machine-2"]
+        self.client.get_status = AsyncMock(
+            side_effect=[
+                {"power": {"state": "on"}},
+                {"power": {"state": "off"}},
+            ]
+        )
+
+        resource_attributes = AttributeDict(drone_uuid=self.drone_uuid)
+        host = run_async(
+            self.satellite_adapter.get_next_host,
+            resource_attributes=resource_attributes,
+        )
+
+        self.assertEqual(host, "machine-2")
+
+    def test_get_next_host_retries_after_claim_conflict(self):
+        self.config.TestSite.machine_pool = ["machine-1", "machine-2"]
+        self.client.get_status.return_value = {"power": {"state": "off"}}
+        self.registry.set_remote_resource_uuid = AsyncMock(side_effect=[False, True])
+
+        resource_attributes = AttributeDict(drone_uuid=self.drone_uuid)
+        host = run_async(
+            self.satellite_adapter.get_next_host,
+            resource_attributes=resource_attributes,
+        )
+
+        self.assertEqual(host, "machine-2")
+
+    def test_get_next_host_no_free_host(self):
+        self.config.TestSite.machine_pool = ["machine-1"]
+        self.client.get_status.return_value = {"power": {"state": "on"}}
+
+        resource_attributes = AttributeDict(drone_uuid=self.drone_uuid)
+        with self.assertRaises(TardisResourceStatusUpdateFailed):
+            run_async(
+                self.satellite_adapter.get_next_host,
+                resource_attributes=resource_attributes,
+            )
+
+    def _assert_resource_status(
+        self,
+        power_state,
+        expected_status: ResourceStatus,
+        previous_status: ResourceStatus = None,
+        terminating: bool = False,
+    ):
         """Exercise resource_status and assert the expected ResourceStatus mapping."""
-        self.client.get_status.return_value = response
+        self.client.get_status.return_value = {"power": {"state": power_state}}
 
         resource_attributes = AttributeDict(
-            remote_resource_uuid=self.remote_resource_uuid
+            remote_resource_uuid=self.remote_resource_uuid,
+            resource_status=previous_status,
+            satellite_terminating=terminating,
         )
 
         result = run_async(
@@ -123,64 +228,39 @@ class TestSatelliteAdapter(TestCase):
         )
 
         self.client.get_status.assert_awaited_once_with(self.remote_resource_uuid)
-        return self.client
 
     def test_resource_status_running(self):
-        response = {
-            "power": {"state": "on"},
-            "parameters": {"tardis_reservation_state": "free"},
-        }
-        client = self._assert_resource_status(response, ResourceStatus.Running)
-        client.set_satellite_parameter.assert_not_awaited()
+        self._assert_resource_status(
+            "on", ResourceStatus.Running, previous_status=ResourceStatus.Stopped
+        )
 
-    def test_resource_status_running_clears_booting(self):
-        response = {
-            "power": {"state": "on"},
-            "parameters": {"tardis_reservation_state": "booting"},
-        }
-        client = self._assert_resource_status(response, ResourceStatus.Running)
-        client.set_satellite_parameter.assert_awaited_once_with(
-            self.remote_resource_uuid, "tardis_reservation_state", "active"
+    def test_resource_status_running_from_booting(self):
+        self._assert_resource_status(
+            "on", ResourceStatus.Running, previous_status=ResourceStatus.Booting
         )
 
     def test_resource_status_booting(self):
-        response = {
-            "power": {"state": "off"},
-            "parameters": {"tardis_reservation_state": "booting"},
-        }
-        client = self._assert_resource_status(response, ResourceStatus.Booting)
-        client.set_satellite_parameter.assert_not_awaited()
+        self._assert_resource_status(
+            "off", ResourceStatus.Booting, previous_status=ResourceStatus.Booting
+        )
 
     def test_resource_status_deleted(self):
-        response = {
-            "power": {"state": "off"},
-            "parameters": {"tardis_reservation_state": "terminating"},
-        }
-        client = self._assert_resource_status(response, ResourceStatus.Deleted)
-
-        # Deleted resources should free the reservation.
-        client.set_satellite_parameter.assert_has_awaits(
-            [
-                call(self.remote_resource_uuid, "tardis_reservation_state", "free"),
-            ]
+        self._assert_resource_status(
+            "off",
+            ResourceStatus.Deleted,
+            previous_status=ResourceStatus.Stopped,
+            terminating=True,
         )
-        self.assertEqual(client.set_satellite_parameter.await_count, 1)
 
     def test_resource_status_stopped(self):
-        response = {
-            "power": {"state": "off"},
-            "parameters": {"tardis_reservation_state": "active"},
-        }
-        client = self._assert_resource_status(response, ResourceStatus.Stopped)
-        client.set_satellite_parameter.assert_not_awaited()
+        self._assert_resource_status(
+            "off", ResourceStatus.Stopped, previous_status=ResourceStatus.Running
+        )
 
     def test_resource_status_error(self):
-        response = {
-            "power": {"state": "suspended"},
-            "parameters": {"tardis_reservation_state": "free"},
-        }
-        client = self._assert_resource_status(response, ResourceStatus.Error)
-        client.set_satellite_parameter.assert_not_awaited()
+        self._assert_resource_status(
+            "suspended", ResourceStatus.Error, previous_status=ResourceStatus.Running
+        )
 
     def test_stop_resource(self):
         self.client.set_power.return_value = {}
@@ -201,7 +281,18 @@ class TestSatelliteAdapter(TestCase):
             ),
         )
         self.client.set_power.assert_awaited_once_with("off", self.remote_resource_uuid)
-        self.client.set_satellite_parameter.assert_not_awaited()
+
+    def test_terminate_resource(self):
+        resource_attributes = AttributeDict(
+            remote_resource_uuid=self.remote_resource_uuid
+        )
+        run_async(
+            self.satellite_adapter.terminate_resource,
+            resource_attributes=resource_attributes,
+        )
+
+        self.assertTrue(resource_attributes["satellite_terminating"])
+        self.client.set_power.assert_not_awaited()
 
     def test_exception_handling(self):
         def test_exception_handling(to_raise, to_catch):
