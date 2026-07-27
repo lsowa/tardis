@@ -2,10 +2,11 @@ from tardis.adapters.sites.satellite import SatelliteAdapter
 from tardis.utilities.attributedict import AttributeDict
 from tardis.interfaces.siteadapter import ResourceStatus
 from tardis.exceptions.tardisexceptions import TardisResourceStatusUpdateFailed
-from tests.utilities.utilities import run_async
 
 from unittest import TestCase
 from unittest.mock import AsyncMock, patch
+
+import asyncio
 
 
 class TestSatelliteAdapter(TestCase):
@@ -102,9 +103,10 @@ class TestSatelliteAdapter(TestCase):
             AsyncMock(return_value="uuid-new"),
         ) as mock_get_next_host:
             self.assertEqual(
-                run_async(
-                    self.satellite_adapter.deploy_resource,
-                    resource_attributes=resource_attributes,
+                asyncio.run(
+                    self.satellite_adapter.deploy_resource(
+                        resource_attributes=resource_attributes,
+                    )
                 ),
                 AttributeDict(remote_resource_uuid="uuid-new"),
             )
@@ -132,9 +134,10 @@ class TestSatelliteAdapter(TestCase):
         self.client.get_status.return_value = {"power": {"state": "off"}}
 
         resource_attributes = AttributeDict(drone_uuid=self.drone_uuid)
-        host = run_async(
-            self.satellite_adapter.get_next_host,
-            resource_attributes=resource_attributes,
+        host = asyncio.run(
+            self.satellite_adapter.get_next_host(
+                resource_attributes=resource_attributes,
+            )
         )
 
         self.assertEqual(host, "machine-1")
@@ -150,9 +153,10 @@ class TestSatelliteAdapter(TestCase):
         self.client.get_status.return_value = {"power": {"state": "off"}}
 
         resource_attributes = AttributeDict(drone_uuid=self.drone_uuid)
-        host = run_async(
-            self.satellite_adapter.get_next_host,
-            resource_attributes=resource_attributes,
+        host = asyncio.run(
+            self.satellite_adapter.get_next_host(
+                resource_attributes=resource_attributes,
+            )
         )
 
         self.assertEqual(host, "machine-2")
@@ -167,9 +171,10 @@ class TestSatelliteAdapter(TestCase):
         )
 
         resource_attributes = AttributeDict(drone_uuid=self.drone_uuid)
-        host = run_async(
-            self.satellite_adapter.get_next_host,
-            resource_attributes=resource_attributes,
+        host = asyncio.run(
+            self.satellite_adapter.get_next_host(
+                resource_attributes=resource_attributes,
+            )
         )
 
         self.assertEqual(host, "machine-2")
@@ -180,9 +185,10 @@ class TestSatelliteAdapter(TestCase):
         self.registry.set_remote_resource_uuid = AsyncMock(side_effect=[False, True])
 
         resource_attributes = AttributeDict(drone_uuid=self.drone_uuid)
-        host = run_async(
-            self.satellite_adapter.get_next_host,
-            resource_attributes=resource_attributes,
+        host = asyncio.run(
+            self.satellite_adapter.get_next_host(
+                resource_attributes=resource_attributes,
+            )
         )
 
         self.assertEqual(host, "machine-2")
@@ -193,9 +199,10 @@ class TestSatelliteAdapter(TestCase):
 
         resource_attributes = AttributeDict(drone_uuid=self.drone_uuid)
         with self.assertRaises(TardisResourceStatusUpdateFailed):
-            run_async(
-                self.satellite_adapter.get_next_host,
-                resource_attributes=resource_attributes,
+            asyncio.run(
+                self.satellite_adapter.get_next_host(
+                    resource_attributes=resource_attributes,
+                )
             )
 
     def _assert_resource_status(
@@ -214,9 +221,10 @@ class TestSatelliteAdapter(TestCase):
             satellite_terminating=terminating,
         )
 
-        result = run_async(
-            self.satellite_adapter.resource_status,
-            resource_attributes=resource_attributes,
+        result = asyncio.run(
+            self.satellite_adapter.resource_status(
+                resource_attributes=resource_attributes,
+            )
         )
 
         self.assertEqual(
@@ -279,16 +287,18 @@ class TestSatelliteAdapter(TestCase):
         )
 
         for _ in range(2):
-            result = run_async(
-                self.satellite_adapter.resource_status,
-                resource_attributes=resource_attributes,
+            result = asyncio.run(
+                self.satellite_adapter.resource_status(
+                    resource_attributes=resource_attributes,
+                )
             )
             resource_attributes.update(result)
             self.client.set_power.assert_not_awaited()
 
-        result = run_async(
-            self.satellite_adapter.resource_status,
-            resource_attributes=resource_attributes,
+        result = asyncio.run(
+            self.satellite_adapter.resource_status(
+                resource_attributes=resource_attributes,
+            )
         )
         resource_attributes.update(result)
 
@@ -303,25 +313,28 @@ class TestSatelliteAdapter(TestCase):
         )
 
         self.client.get_status.return_value = {"power": {"state": "na"}}
-        result = run_async(
-            self.satellite_adapter.resource_status,
-            resource_attributes=resource_attributes,
+        result = asyncio.run(
+            self.satellite_adapter.resource_status(
+                resource_attributes=resource_attributes,
+            )
         )
         resource_attributes.update(result)
         self.assertEqual(resource_attributes["satellite_ambiguous_polls"], 1)
 
         self.client.get_status.return_value = {"power": {"state": "on"}}
-        result = run_async(
-            self.satellite_adapter.resource_status,
-            resource_attributes=resource_attributes,
+        result = asyncio.run(
+            self.satellite_adapter.resource_status(
+                resource_attributes=resource_attributes,
+            )
         )
         resource_attributes.update(result)
         self.assertEqual(resource_attributes["satellite_ambiguous_polls"], 0)
 
         self.client.get_status.return_value = {"power": {"state": "na"}}
-        result = run_async(
-            self.satellite_adapter.resource_status,
-            resource_attributes=resource_attributes,
+        result = asyncio.run(
+            self.satellite_adapter.resource_status(
+                resource_attributes=resource_attributes,
+            )
         )
         resource_attributes.update(result)
         self.assertEqual(resource_attributes["satellite_ambiguous_polls"], 1)
@@ -333,9 +346,10 @@ class TestSatelliteAdapter(TestCase):
         resource_attributes = AttributeDict(
             remote_resource_uuid=self.remote_resource_uuid
         )
-        result = run_async(
-            self.satellite_adapter.stop_resource,
-            resource_attributes=resource_attributes,
+        result = asyncio.run(
+            self.satellite_adapter.stop_resource(
+                resource_attributes=resource_attributes,
+            )
         )
 
         self.assertEqual(
@@ -351,9 +365,10 @@ class TestSatelliteAdapter(TestCase):
         resource_attributes = AttributeDict(
             remote_resource_uuid=self.remote_resource_uuid
         )
-        run_async(
-            self.satellite_adapter.terminate_resource,
-            resource_attributes=resource_attributes,
+        asyncio.run(
+            self.satellite_adapter.terminate_resource(
+                resource_attributes=resource_attributes,
+            )
         )
 
         self.assertTrue(resource_attributes["satellite_terminating"])
