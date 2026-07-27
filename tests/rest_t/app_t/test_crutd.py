@@ -123,10 +123,11 @@ class TestCRUD(TestCase):
 
         self.assertEqual(
             [],
-            run_async(
-                crud.get_drone_uuid,
-                sql_registry=self.sql_registry_mock,
-                remote_resource_uuid="nonexistent-uuid",
+            asyncio.run(
+                crud.get_drone_uuid(
+                    sql_registry=self.sql_registry_mock,
+                    remote_resource_uuid="nonexistent-uuid",
+                )
             ),
         )
 
@@ -142,10 +143,11 @@ class TestCRUD(TestCase):
 
         self.assertEqual(
             [{"drone_uuid": "test-0125bc9fd8"}],
-            run_async(
-                crud.get_drone_uuid,
-                sql_registry=self.sql_registry_mock,
-                remote_resource_uuid="14fa5640a7c146e482e8be41ec5dffea",
+            asyncio.run(
+                crud.get_drone_uuid(
+                    sql_registry=self.sql_registry_mock,
+                    remote_resource_uuid="14fa5640a7c146e482e8be41ec5dffea",
+                )
             ),
         )
 

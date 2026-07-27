@@ -239,13 +239,19 @@ class TestSqliteRegistry(TestCase):
     def test_async_get_resources(self):
         self.registry.add_site(self.test_site_name)
         self.registry.add_machine_types(self.test_site_name, self.test_machine_type)
-        run_async(self.registry.notify, RequestState(), self.test_resource_attributes)
+        asyncio.run(
+            self.registry.notify(
+                RequestState(),
+                self.test_resource_attributes,
+            )
+        )
 
         self.assertListEqual(
-            run_async(
-                self.registry.async_get_resources,
-                site_name=self.test_site_name,
-                machine_type=self.test_machine_type,
+            asyncio.run(
+                self.registry.async_get_resources(
+                    site_name=self.test_site_name,
+                    machine_type=self.test_machine_type,
+                )
             ),
             [self.test_get_resources_result],
         )
@@ -254,19 +260,30 @@ class TestSqliteRegistry(TestCase):
     def test_set_remote_resource_uuid(self):
         self.registry.add_site(self.test_site_name)
         self.registry.add_machine_types(self.test_site_name, self.test_machine_type)
-        run_async(self.registry.notify, RequestState(), self.test_resource_attributes)
+        asyncio.run(
+            self.registry.notify(
+                RequestState(),
+                self.test_resource_attributes,
+            )
+        )
 
         other_drone_uuid = f"{self.test_site_name}-other-drone"
         other_resource_attributes = dict(self.test_resource_attributes)
         other_resource_attributes["drone_uuid"] = other_drone_uuid
-        run_async(self.registry.notify, RequestState(), other_resource_attributes)
+        asyncio.run(
+            self.registry.notify(
+                RequestState(),
+                other_resource_attributes,
+            )
+        )
 
         self.assertTrue(
-            run_async(
-                self.registry.set_remote_resource_uuid,
-                drone_uuid=self.test_resource_attributes["drone_uuid"],
-                remote_resource_uuid="claimed-host",
-                site_name=self.test_site_name,
+            asyncio.run(
+                self.registry.set_remote_resource_uuid(
+                    drone_uuid=self.test_resource_attributes["drone_uuid"],
+                    remote_resource_uuid="claimed-host",
+                    site_name=self.test_site_name,
+                )
             )
         )
 
@@ -283,11 +300,12 @@ class TestSqliteRegistry(TestCase):
 
         # claiming the same remote_resource_uuid for a different drone fails
         self.assertFalse(
-            run_async(
-                self.registry.set_remote_resource_uuid,
-                drone_uuid=other_drone_uuid,
-                remote_resource_uuid="claimed-host",
-                site_name=self.test_site_name,
+            asyncio.run(
+                self.registry.set_remote_resource_uuid(
+                    drone_uuid=other_drone_uuid,
+                    remote_resource_uuid="claimed-host",
+                    site_name=self.test_site_name,
+                )
             )
         )
 
