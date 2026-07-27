@@ -244,6 +244,12 @@ class TestSatelliteAdapter(TestCase):
             "off", ResourceStatus.Booting, previous_status=ResourceStatus.Booting
         )
 
+    def test_resource_status_ambiguous_while_other_status(self):
+        self._assert_resource_status(
+            "na", ResourceStatus.Booting, previous_status=ResourceStatus.Booting
+        )
+        self.client.set_power.assert_not_awaited()
+
     def test_resource_status_deleted(self):
         self._assert_resource_status(
             "off",
@@ -259,8 +265,67 @@ class TestSatelliteAdapter(TestCase):
 
     def test_resource_status_error(self):
         self._assert_resource_status(
-            "suspended", ResourceStatus.Error, previous_status=ResourceStatus.Running
+            "suspended", ResourceStatus.Error, previous_status=None
         )
+
+    def test_resource_status_forces_power_off_after_max_ambiguous_polls(self):
+        self.config.TestSite.max_ambiguous_polls = 2
+        self.client.get_status.return_value = {"power": {"state": "na"}}
+        self.client.set_power = AsyncMock(return_value={})
+
+        resource_attributes = AttributeDict(
+            remote_resource_uuid=self.remote_resource_uuid,
+            resource_status=ResourceStatus.Running,
+        )
+
+        for _ in range(2):
+            result = run_async(
+                self.satellite_adapter.resource_status,
+                resource_attributes=resource_attributes,
+            )
+            resource_attributes.update(result)
+            self.client.set_power.assert_not_awaited()
+
+        result = run_async(
+            self.satellite_adapter.resource_status,
+            resource_attributes=resource_attributes,
+        )
+        resource_attributes.update(result)
+
+        self.client.set_power.assert_awaited_once_with("off", self.remote_resource_uuid)
+        self.assertEqual(result.resource_status, ResourceStatus.Stopped)
+
+    def test_resource_status_ambiguous_polls_reset_after_confirmed_reading(self):
+        self.config.TestSite.max_ambiguous_polls = 2
+        resource_attributes = AttributeDict(
+            remote_resource_uuid=self.remote_resource_uuid,
+            resource_status=ResourceStatus.Running,
+        )
+
+        self.client.get_status.return_value = {"power": {"state": "na"}}
+        result = run_async(
+            self.satellite_adapter.resource_status,
+            resource_attributes=resource_attributes,
+        )
+        resource_attributes.update(result)
+        self.assertEqual(resource_attributes["satellite_ambiguous_polls"], 1)
+
+        self.client.get_status.return_value = {"power": {"state": "on"}}
+        result = run_async(
+            self.satellite_adapter.resource_status,
+            resource_attributes=resource_attributes,
+        )
+        resource_attributes.update(result)
+        self.assertEqual(resource_attributes["satellite_ambiguous_polls"], 0)
+
+        self.client.get_status.return_value = {"power": {"state": "na"}}
+        result = run_async(
+            self.satellite_adapter.resource_status,
+            resource_attributes=resource_attributes,
+        )
+        resource_attributes.update(result)
+        self.assertEqual(resource_attributes["satellite_ambiguous_polls"], 1)
+        self.client.set_power.assert_not_awaited()
 
     def test_stop_resource(self):
         self.client.set_power.return_value = {}

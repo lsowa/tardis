@@ -223,7 +223,10 @@ class SatelliteAdapter(SiteAdapter):
         self, resource_attributes: AttributeDict
     ) -> AttributeDict:
         """
-        Query Satellite information and translate to ResourceStatus.
+        Query Satellite information and translate to ResourceStatus, tolerating
+        ambiguous ``power`` states (e.g. ``na``) for up to ``max_ambiguous_polls``
+        consecutive polls before forcing a power-off.
+
         :param resource_attributes: Attributes describing the tracked drone.
         :return: Normalised response containing the translated resource status.
         """
@@ -231,9 +234,35 @@ class SatelliteAdapter(SiteAdapter):
             resource_attributes.remote_resource_uuid
         )
 
-        power_state = response.get("power", {}).get("state")
+        power = response.get("power", {})
+        power_state = power.get("state")
         terminating = resource_attributes.get("satellite_terminating", False)
         previous_status = resource_attributes.get("resource_status")
+
+        if power_state in ("on", "off") or terminating:
+            resource_attributes["satellite_ambiguous_polls"] = 0
+        else:
+            ambiguous_polls = (
+                resource_attributes.get("satellite_ambiguous_polls", 0) + 1
+            )
+            resource_attributes["satellite_ambiguous_polls"] = ambiguous_polls
+            logger.debug(
+                "%s: satellite_ambiguous_polls=%d",
+                resource_attributes.remote_resource_uuid,
+                ambiguous_polls,
+            )
+
+            max_ambiguous_polls = self.configuration.get("max_ambiguous_polls", 3)
+            if ambiguous_polls > max_ambiguous_polls:
+                logger.error(
+                    "%s: power state ambiguous (%r, %s) for %d consecutive "
+                    "polls; forcing power off",
+                    resource_attributes.remote_resource_uuid,
+                    power_state,
+                    power.get("statusText"),
+                    ambiguous_polls,
+                )
+                return await self.stop_resource(resource_attributes)
 
         status = self._resolve_status(power_state, terminating, previous_status)
         return self.handle_response(
@@ -296,8 +325,10 @@ class SatelliteAdapter(SiteAdapter):
         previous_status: Optional[ResourceStatus],
     ) -> ResourceStatus:
         """
-        Translate the Satellite power state, combined with locally known
-        drone state, into the canonical ``ResourceStatus``.
+        Translate the Satellite power state, combined with locally known drone
+        state, into the canonical ``ResourceStatus``. An ambiguous ``power_state``
+        carries forward ``previous_status`` instead of ``Error``, falling back to
+        ``Error`` only when there's no previous status to trust.
 
         :param power_state: Reported power state of the host.
         :param terminating: Whether ``terminate_resource`` has been called
@@ -318,8 +349,14 @@ class SatelliteAdapter(SiteAdapter):
                 return ResourceStatus.Booting
             return ResourceStatus.Stopped
 
-        if previous_status == ResourceStatus.Booting:
-            return ResourceStatus.Booting
+        if previous_status is None:
+            return ResourceStatus.Error
 
-        # each other state should be treated as error
-        return ResourceStatus.Error
+        # still unreachable while booting is routine, not worth a warning
+        if previous_status != ResourceStatus.Booting:
+            logger.warning(
+                "Ambiguous power state %r, keeping previous status %s",
+                power_state,
+                previous_status,
+            )
+        return previous_status
