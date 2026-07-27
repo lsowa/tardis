@@ -99,61 +99,67 @@ class TestResources(TestCaseRouters):
 
     def test_get_drone_uuid(self):
         self.clear_lru_cache()
-        self.mock_crud.get_drone_uuid.return_value = async_return(
+        self.mock_crud.get_drone_uuid = AsyncMock(
             return_value=[{"drone_uuid": "test-0125bc9fd8"}]
         )
 
-        response = run_async(
-            self.client.get,
-            "/resources/14fa5640a7c146e482e8be41ec5dffea/drone_uuid",
+        response = asyncio.run(
+            self.client.get(
+                "/resources/14fa5640a7c146e482e8be41ec5dffea/drone_uuid",
+            )
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"drone_uuid": "test-0125bc9fd8"})
 
-        self.mock_crud.get_drone_uuid.return_value = async_return(return_value=[])
-        response = run_async(self.client.get, "/resources/nonexistent-uuid/drone_uuid")
+        self.mock_crud.get_drone_uuid = AsyncMock(return_value=[])
+        response = asyncio.run(
+            self.client.get("/resources/nonexistent-uuid/drone_uuid")
+        )
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json(), {"detail": "Drone not found"})
 
         # missing scope (JWT/cookie auth)
         self.set_scopes(["resources:patch"])
         self.login()
-        response = run_async(
-            self.client.get, "/resources/14fa5640a7c146e482e8be41ec5dffea/drone_uuid"
+        response = asyncio.run(
+            self.client.get("/resources/14fa5640a7c146e482e8be41ec5dffea/drone_uuid")
         )
         self.assertEqual(response.status_code, 403)
 
     def test_get_drone_uuid_basic_auth(self):
         self.clear_lru_cache()
-        self.mock_crud.get_drone_uuid.return_value = async_return(
+        self.mock_crud.get_drone_uuid = AsyncMock(
             return_value=[{"drone_uuid": "test-0125bc9fd8"}]
         )
 
         # valid Basic Auth credentials, no login/cookie involved
-        response = run_async(
-            self.client.get,
-            "/resources/14fa5640a7c146e482e8be41ec5dffea/drone_uuid",
-            auth=(self.test_user["user_name"], self.test_user["password"]),
+        response = asyncio.run(
+            self.client.get(
+                "/resources/14fa5640a7c146e482e8be41ec5dffea/drone_uuid",
+                auth=(self.test_user["user_name"], self.test_user["password"]),
+            )
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"drone_uuid": "test-0125bc9fd8"})
 
         # wrong password
         self.clear_lru_cache()
-        response = run_async(
-            self.client.get,
-            "/resources/14fa5640a7c146e482e8be41ec5dffea/drone_uuid",
-            auth=(self.test_user["user_name"], "wrong-password"),
+        response = asyncio.run(
+            self.client.get(
+                "/resources/14fa5640a7c146e482e8be41ec5dffea/drone_uuid",
+                auth=(self.test_user["user_name"], "wrong-password"),
+            )
         )
         self.assertEqual(response.status_code, 401)
 
         # missing scope
         self.clear_lru_cache()
         self.set_scopes(["resources:patch"])
-        response = run_async(
-            self.client.get,
-            "/resources/14fa5640a7c146e482e8be41ec5dffea/drone_uuid",
-            auth=(self.test_user["user_name"], self.test_user["password"]),
+        response = asyncio.run(
+            self.client.get(
+                "/resources/14fa5640a7c146e482e8be41ec5dffea/drone_uuid",
+                auth=(self.test_user["user_name"], self.test_user["password"]),
+            )
         )
         self.assertEqual(response.status_code, 403)
 
