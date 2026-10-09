@@ -223,6 +223,35 @@ class TestSqliteRegistry(TestCase):
         )
 
     @patch("tardis.plugins.sqliteregistry.logging", Mock())
+    def test_get_shutdown_time(self):
+        drone_uuid = self.test_resource_attributes["drone_uuid"]
+        asyncio.run(self.registry.notify(RequestState(), self.test_resource_attributes))
+
+        self.assertIsNone(asyncio.run(self.registry.get_shutdown_time(drone_uuid)))
+
+        self.execute_db_query(
+            "UPDATE Resources SET shutdown_time = '2026-10-10 18:00:00' "
+            f"WHERE drone_uuid = '{drone_uuid}'"
+        )
+        self.assertEqual(
+            asyncio.run(self.registry.get_shutdown_time(drone_uuid)),
+            datetime.datetime(2026, 10, 10, 18, 0, 0),
+        )
+
+        # state updates do not overwrite the externally written shutdown_time
+        asyncio.run(
+            self.registry.notify(BootingState(), self.test_updated_resource_attributes)
+        )
+        self.assertEqual(
+            asyncio.run(self.registry.get_shutdown_time(drone_uuid)),
+            datetime.datetime(2026, 10, 10, 18, 0, 0),
+        )
+
+        self.assertIsNone(
+            asyncio.run(self.registry.get_shutdown_time("does_not_exists"))
+        )
+
+    @patch("tardis.plugins.sqliteregistry.logging", Mock())
     def test_get_resources(self):
         self.registry.add_site(self.test_site_name)
         self.registry.add_machine_types(self.test_site_name, self.test_machine_type)

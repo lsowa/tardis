@@ -6,7 +6,7 @@ from ..interfaces.state import State
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime
-from typing import List, Dict, Generator
+from typing import List, Dict, Generator, Optional
 import asyncio
 import logging
 import sqlite3
@@ -126,6 +126,7 @@ class SqliteRegistry(Plugin):
                 "machine_type_id INTEGER",
                 "created TIMESTAMP",
                 "updated TIMESTAMP",
+                "shutdown_time TIMESTAMP",
                 "FOREIGN KEY(state_id) REFERENCES ResourceState(state_id)",
                 "FOREIGN KEY(site_id) REFERENCES Sites(site_id)",
                 "FOREIGN KEY(machine_type_id) REFERENCES MachineTypes(machine_type_id)",
@@ -185,6 +186,16 @@ class SqliteRegistry(Plugin):
         WHERE R.drone_uuid = :drone_uuid
         """
         return await self.async_execute(sql_query, {"drone_uuid": drone_uuid})
+
+    async def get_shutdown_time(self, drone_uuid: str) -> Optional[datetime]:
+        """
+        Return the externally scheduled shutdown time of a drone, or None if
+        it is not (yet) set or the drone is not in the database.
+        """
+        sql_query = """
+        SELECT shutdown_time FROM Resources WHERE drone_uuid = :drone_uuid"""
+        result = await self.async_execute(sql_query, {"drone_uuid": drone_uuid})
+        return result[0]["shutdown_time"] if result else None
 
     def get_resources(self, site_name: str, machine_type: str) -> List[Dict]:
         sql_query = """

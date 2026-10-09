@@ -3,6 +3,7 @@ from tardis.utilities.attributedict import AttributeDict
 from tardis.interfaces.siteadapter import ResourceStatus
 from tardis.exceptions.tardisexceptions import TardisResourceStatusUpdateFailed
 
+from datetime import datetime
 from unittest import TestCase
 from unittest.mock import AsyncMock, patch
 
@@ -111,6 +112,62 @@ class TestSatelliteAdapter(TestCase):
                 AttributeDict(remote_resource_uuid="uuid-new"),
             )
 
+            mock_get_next_host.assert_awaited_once_with(resource_attributes)
+
+        self.client.set_power.assert_awaited_once_with(
+            state="on", remote_resource_uuid="uuid-new"
+        )
+
+    def _scheduled_adapter(self):
+        self.config.TestSite.scheduled_deployment = True
+        return SatelliteAdapter(machine_type="testmachine_type", site_name="TestSite")
+
+    def test_scheduled_deployment_waits_for_shutdown_time(self):
+        adapter = self._scheduled_adapter()
+        self.registry.get_shutdown_time = AsyncMock(return_value=None)
+        resource_attributes = AttributeDict(
+            drone_uuid=self.drone_uuid, remote_resource_uuid=None
+        )
+
+        self.assertEqual(
+            asyncio.run(adapter.deploy_resource(resource_attributes)),
+            AttributeDict(resource_status=ResourceStatus.Booting),
+        )
+        self.assertEqual(
+            asyncio.run(adapter.resource_status(resource_attributes)),
+            AttributeDict(resource_status=ResourceStatus.Booting),
+        )
+        self.registry.get_shutdown_time.assert_awaited_once_with(self.drone_uuid)
+
+        # cleanup of a drone that never got a host
+        resource_attributes["satellite_terminating"] = True
+        self.assertEqual(
+            asyncio.run(adapter.resource_status(resource_attributes)),
+            AttributeDict(resource_status=ResourceStatus.Deleted),
+        )
+
+        self.client.get_status.assert_not_awaited()
+        self.client.set_power.assert_not_awaited()
+
+    def test_scheduled_deployment_deploys_with_shutdown_time(self):
+        adapter = self._scheduled_adapter()
+        shutdown_time = datetime(2026, 10, 10, 18, 0, 0)
+        self.registry.get_shutdown_time = AsyncMock(return_value=shutdown_time)
+        resource_attributes = AttributeDict(
+            drone_uuid=self.drone_uuid, remote_resource_uuid=None
+        )
+
+        with patch.object(
+            adapter, "get_next_host", AsyncMock(return_value="uuid-new")
+        ) as mock_get_next_host:
+            self.assertEqual(
+                asyncio.run(adapter.resource_status(resource_attributes)),
+                AttributeDict(
+                    resource_status=ResourceStatus.Booting,
+                    remote_resource_uuid="uuid-new",
+                    shutdown_time=shutdown_time,
+                ),
+            )
             mock_get_next_host.assert_awaited_once_with(resource_attributes)
 
         self.client.set_power.assert_awaited_once_with(

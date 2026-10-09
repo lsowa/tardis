@@ -703,6 +703,17 @@ Satellite Site Adapter
     until Satellite recovers. If the ambiguous state persists for more than ``max_ambiguous_polls`` consecutive
     checks, the adapter gives up waiting and actively powers the host off instead.
 
+    Optionally, the deployment of a drone can be deferred until an external mechanism has scheduled it
+    (``scheduled_deployment: true``). In this mode a new drone does not claim a host right away, but stays
+    in ``BootingState`` until a ``shutdown_time`` has been written to its entry in the drone database. Only
+    then is a free host claimed and powered on. If no host is free at that point, the allocation is retried
+    with the next status update. The external mechanism sets the value once the drone's entry
+    exists (i.e. from ``RequestState`` on), for example via
+    ``UPDATE Resources SET shutdown_time = 'YYYY-MM-DD HH:MM:SS' WHERE drone_uuid = '<drone_uuid>'``.
+    The entry, including ``shutdown_time``, is removed as soon as the drone reaches ``DownState``.
+    Currently, ``shutdown_time`` only triggers the deployment; the host is not yet powered off automatically
+    once that time is reached.
+
 Available adapter configuration options
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -739,6 +750,12 @@ Available adapter configuration options
     +                      +                                                                                          +                 +
     |                      | Default: ``3``                                                                           |                 |
     +----------------------+------------------------------------------------------------------------------------------+-----------------+
+    | scheduled_deployment | Defer claiming and powering on a host until a ``shutdown_time`` for the drone has been   | Optional        |
+    +                      +                                                                                          +                 +
+    |                      | written to the drone database by an external mechanism.                                  |                 |
+    +                      +                                                                                          +                 +
+    |                      | Default: ``false``                                                                       |                 |
+    +----------------------+------------------------------------------------------------------------------------------+-----------------+
 
     The Satellite adapter does not introduce additional machine type specific options.
     Provide ``MachineMetaData`` entries for each machine type to describe cores, memory and disk.
@@ -763,6 +780,7 @@ Available adapter configuration options
           domain: .example.com
           proxy: http://proxy.example.com:3128
           max_ambiguous_polls: 3
+          scheduled_deployment: false
           machine_pool:
             - compute-node-01
             - compute-node-02

@@ -143,6 +143,10 @@ class SatelliteAdapter(SiteAdapter):
             proxy=self.configuration.proxy,
         )
 
+        self._scheduled_deployment = self.configuration.get(
+            "scheduled_deployment", False
+        )
+
         key_translator = StaticMapping(
             remote_resource_uuid="remote_resource_uuid",
             resource_status="resource_status",
@@ -164,16 +168,63 @@ class SatelliteAdapter(SiteAdapter):
         """
         Allocate an available host and ensure it is powered on.
 
+        With ``scheduled_deployment`` enabled, no host is allocated here. The
+        drone is reported as booting and the host is allocated and powered on
+        by :py:meth:`resource_status` once a ``shutdown_time`` has been written
+        to the drone database.
+
         :param resource_attributes: Attributes describing the drone to deploy.
         :return: Normalised response containing at least the remote UUID.
+        """
+        if self._scheduled_deployment:
+            return self.handle_response({}, resource_status=ResourceStatus.Booting)
+
+        remote_resource_uuid = await self._claim_and_power_on(resource_attributes)
+
+        # codeql[py/incorrect-call-arguments]
+        return self.handle_response({"remote_resource_uuid": remote_resource_uuid})
+
+    async def _claim_and_power_on(self, resource_attributes: AttributeDict) -> str:
+        """
+        Claim the next free host for the drone and power it on.
+
+        :param resource_attributes: Attributes of the drone claiming a host.
+        :return: Identifier of the claimed host.
         """
         remote_resource_uuid = await self.get_next_host(resource_attributes)
         await self.client.set_power(
             state="on", remote_resource_uuid=remote_resource_uuid
         )
+        return remote_resource_uuid
 
-        # codeql[py/incorrect-call-arguments]
-        return self.handle_response({"remote_resource_uuid": remote_resource_uuid})
+    async def _deploy_when_scheduled(
+        self, resource_attributes: AttributeDict
+    ) -> AttributeDict:
+        """
+        Deploy a scheduled drone once an external ``shutdown_time`` is
+        available in the drone database. Until then, the drone is reported as
+        booting without claiming or powering on a host.
+
+        :param resource_attributes: Attributes describing the tracked drone.
+        :return: Normalised response containing the translated resource status.
+        """
+        shutdown_time = await self.registry.get_shutdown_time(
+            resource_attributes.drone_uuid
+        )
+        if shutdown_time is None:
+            logger.debug(
+                f"Drone {resource_attributes.drone_uuid} waits for shutdown_time"
+            )
+            return self.handle_response({}, resource_status=ResourceStatus.Booting)
+
+        # shutdown_time is available, claim and power on a host
+        remote_resource_uuid = await self._claim_and_power_on(resource_attributes)
+        return self.handle_response(
+            {},
+            resource_status=ResourceStatus.Booting,
+            remote_resource_uuid=remote_resource_uuid,
+            shutdown_time=shutdown_time,
+        )
 
     async def get_next_host(self, resource_attributes: AttributeDict) -> str:
         """
@@ -231,6 +282,14 @@ class SatelliteAdapter(SiteAdapter):
         :param resource_attributes: Attributes describing the tracked drone.
         :return: Normalised response containing the translated resource status.
         """
+        if self._scheduled_deployment and not resource_attributes.get(
+            "remote_resource_uuid"
+        ):
+            # drone has not been assigned a host yet
+            if resource_attributes.get("satellite_terminating", False):
+                return self.handle_response({}, resource_status=ResourceStatus.Deleted)
+            return await self._deploy_when_scheduled(resource_attributes)
+
         response = await self.client.get_status(
             resource_attributes.remote_resource_uuid
         )
