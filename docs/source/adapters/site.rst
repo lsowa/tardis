@@ -708,8 +708,8 @@ Satellite Site Adapter
     in ``BootingState`` until a ``shutdown_time`` has been written to its entry in the drone database. Only
     then is a free host claimed and powered on. If no host is free at that point, the allocation is retried
     with the next status update. The external mechanism sets the value once the drone's entry
-    exists (i.e. from ``RequestState`` on), for example via
-    ``UPDATE Resources SET shutdown_time = 'YYYY-MM-DD HH:MM:SS' WHERE drone_uuid = '<drone_uuid>'``.
+    exists (i.e. from ``RequestState`` on), preferably via the REST service
+    (``PATCH /resources/{drone_uuid}/shutdown_time``, see :doc:`../services/services`).
     The entry, including ``shutdown_time``, is removed as soon as the drone reaches ``DownState``.
     Currently, ``shutdown_time`` only triggers the deployment; the host is not yet powered off automatically
     once that time is reached.

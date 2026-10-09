@@ -1,6 +1,7 @@
 from tardis.rest.app import crud
 from tardis.plugins.sqliteregistry import SqliteRegistry
 
+from datetime import datetime
 from unittest import TestCase
 from unittest.mock import MagicMock
 
@@ -157,4 +158,22 @@ class TestCRUD(TestCase):
     FROM Resources R
     WHERE R.remote_resource_uuid = :remote_resource_uuid""",
             {"remote_resource_uuid": "14fa5640a7c146e482e8be41ec5dffea"},
+        )
+
+    def test_set_shutdown_time(self):
+        shutdown_time = datetime(2026, 10, 10, 18, 0, 0)
+        asyncio.run(
+            crud.set_shutdown_time(
+                sql_registry=self.sql_registry_mock,
+                drone_uuid="test-0125bc9fd8",
+                shutdown_time=shutdown_time,
+            )
+        )
+
+        self.sql_registry_mock.async_execute.assert_called_once_with(
+            """
+    UPDATE Resources
+    SET shutdown_time = :shutdown_time
+    WHERE drone_uuid = :drone_uuid""",
+            {"drone_uuid": "test-0125bc9fd8", "shutdown_time": shutdown_time},
         )

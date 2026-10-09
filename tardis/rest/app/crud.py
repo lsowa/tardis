@@ -1,3 +1,6 @@
+from datetime import datetime
+
+
 async def get_resource_state(sql_registry, drone_uuid: str):
     sql_query = """
     SELECT R.drone_uuid, RS.state
@@ -49,3 +52,13 @@ async def set_state_to_draining(sql_registry, drone_uuid: str):
     SET state_id = (SELECT state_id FROM ResourceStates WHERE state = 'DrainState')
     WHERE drone_uuid = :drone_uuid"""
     return await sql_registry.async_execute(sql_query, dict(drone_uuid=drone_uuid))
+
+
+async def set_shutdown_time(sql_registry, drone_uuid: str, shutdown_time: datetime):
+    sql_query = """
+    UPDATE Resources
+    SET shutdown_time = :shutdown_time
+    WHERE drone_uuid = :drone_uuid"""
+    return await sql_registry.async_execute(
+        sql_query, dict(drone_uuid=drone_uuid, shutdown_time=shutdown_time)
+    )

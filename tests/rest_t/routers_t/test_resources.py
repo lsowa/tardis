@@ -1,3 +1,4 @@
+from datetime import datetime
 from unittest.mock import ANY, AsyncMock
 from tests.rest_t.routers_t.base_test_case_routers import TestCaseRouters
 
@@ -180,4 +181,56 @@ class TestResources(TestCaseRouters):
         self.set_scopes(["resources:get"])
         self.login()
         response = asyncio.run(self.client.patch("/resources/test-0125bc9fd8/drain"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_set_shutdown_time(self):
+        self.clear_lru_cache()
+        self.mock_crud.get_resource_state = AsyncMock(
+            return_value=[{"drone_uuid": "test-0125bc9fd8", "state": "BootingState"}]
+        )
+        self.mock_crud.set_shutdown_time = AsyncMock()
+
+        response = asyncio.run(
+            self.client.patch(
+                "/resources/test-0125bc9fd8/shutdown_time",
+                json={"shutdown_time": "2026-10-10T18:00:00"},
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(), {"msg": "shutdown_time set to 2026-10-10 18:00:00"}
+        )
+        self.mock_crud.set_shutdown_time.assert_called_once_with(
+            ANY, "test-0125bc9fd8", datetime(2026, 10, 10, 18, 0, 0)
+        )
+
+        # invalid timestamp
+        response = asyncio.run(
+            self.client.patch(
+                "/resources/test-0125bc9fd8/shutdown_time",
+                json={"shutdown_time": "tomorrow"},
+            )
+        )
+        self.assertEqual(response.status_code, 422)
+
+        # unknown drone
+        self.mock_crud.get_resource_state.return_value = []
+        response = asyncio.run(
+            self.client.patch(
+                "/resources/test-0125bc9fd8/shutdown_time",
+                json={"shutdown_time": "2026-10-10T18:00:00"},
+            )
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"detail": "Drone not found"})
+
+        # missing scope
+        self.set_scopes(["resources:get"])
+        self.login()
+        response = asyncio.run(
+            self.client.patch(
+                "/resources/test-0125bc9fd8/shutdown_time",
+                json={"shutdown_time": "2026-10-10T18:00:00"},
+            )
+        )
         self.assertEqual(response.status_code, 403)

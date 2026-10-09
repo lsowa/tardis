@@ -50,11 +50,11 @@ REST Service
 .. content-tabs:: left-col
 
     The :py:class:`~tardis.rest.service.RestService` provides a REST API to access the information stored about managed
-    ``Drones`` inside the :py:class:`~tardis.plugins.sqliteregistry.SqliteRegistry` plugin. Currently access is read
-    only and limited to either list all managed resources or to get the state of a particular resource. All supported
-    REST API calls and their parameters are described in REST API documentation available on
-    ``http://<hostname>:<port>/docs`` after starting the service. The REST service is using JSON Web Token (JWT) and
-    OAuth2 scopes for authentication and authorization.
+    ``Drones`` inside the :py:class:`~tardis.plugins.sqliteregistry.SqliteRegistry` plugin. Currently it allows to
+    list all managed resources, to get the state of a particular resource, to drain a resource and to set its
+    scheduled shutdown time. All supported REST API calls and their parameters are described in REST API
+    documentation available on ``http://<hostname>:<port>/docs`` after starting the service. The REST service is
+    using JSON Web Token (JWT) and OAuth2 scopes for authentication and authorization.
 
     .. note::
 
@@ -64,11 +64,14 @@ REST Service
 
     .. note::
 
-        The REST service currently supports only read access to the
-        :py:class:`~tardis.plugins.sqliteregistry.SqliteRegistry` using the ``resources:get`` OAuth2 scope. However,
-        this could be extended in the future to support also DB updates and deletions using ``resources:put`` and
-        ``resources:delete`` OAuth2 scopes. In addition, plans exist to store the ``TARDIS`` configuration in a
-        database as well and allow to use the REST service to perform configuration updates at run time.
+        The REST service provides read access to the
+        :py:class:`~tardis.plugins.sqliteregistry.SqliteRegistry` using the ``resources:get`` OAuth2 scope. Limited
+        write access is available using the ``resources:patch`` OAuth2 scope: draining a drone
+        (``PATCH /resources/{drone_uuid}/drain``) and setting its scheduled shutdown time
+        (``PATCH /resources/{drone_uuid}/shutdown_time`` with a JSON body like
+        ``{"shutdown_time": "2026-10-10T18:00:00"}``). Timestamps with a timezone are converted to the local time of
+        the ``TARDIS`` host. Plans exist to store the ``TARDIS`` configuration in a database as well and allow to
+        use the REST service to perform configuration updates at run time.
 
 
     .. warning::
