@@ -707,9 +707,9 @@ Satellite Site Adapter
     (``scheduled_deployment: true``). In this mode a new drone does not claim a host right away, but stays
     in ``BootingState`` until a ``shutdown_time`` has been written to its entry in the drone database. Only
     then is a free host claimed and powered on. If no host is free at that point, the allocation is retried
-    with the next status update. The external mechanism sets the value once the drone's entry
-    exists (i.e. from ``RequestState`` on), preferably via the REST service
-    (``PATCH /resources/{drone_uuid}/shutdown_time``, see :doc:`../services/services`).
+    with the next status update. The external mechanism does not need to know the drones: via the REST
+    service (``PATCH /resources/shutdown_time``, see :doc:`../services/services`) the ``shutdown_time``
+    is assigned to the oldest drone still waiting for one.
     The entry, including ``shutdown_time``, is removed as soon as the drone reaches ``DownState``.
     Currently, ``shutdown_time`` only triggers the deployment; the host is not yet powered off automatically
     once that time is reached.

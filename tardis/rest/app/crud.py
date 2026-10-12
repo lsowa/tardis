@@ -54,11 +54,31 @@ async def set_state_to_draining(sql_registry, drone_uuid: str):
     return await sql_registry.async_execute(sql_query, dict(drone_uuid=drone_uuid))
 
 
-async def set_shutdown_time(sql_registry, drone_uuid: str, shutdown_time: datetime):
+async def assign_shutdown_time(sql_registry, shutdown_time: datetime):
+    """
+    Assign shutdown_time to the oldest drone still waiting for one, i.e. a
+    drone in BootingState without host and without shutdown_time.
+    Returns the drone_uuid of that drone or None if no drone is waiting.
+    """
+    sql_query = """
+    SELECT R.drone_uuid
+    FROM Resources R
+    JOIN ResourceStates RS ON R.state_id = RS.state_id
+    WHERE RS.state = 'BootingState'
+    AND R.remote_resource_uuid IS NULL
+    AND R.shutdown_time IS NULL
+    ORDER BY R.created, R.id
+    LIMIT 1"""
+    waiting_drones = await sql_registry.async_execute(sql_query, {})
+    if not waiting_drones:
+        return None
+    drone_uuid = waiting_drones[0]["drone_uuid"]
+
     sql_query = """
     UPDATE Resources
     SET shutdown_time = :shutdown_time
-    WHERE drone_uuid = :drone_uuid"""
-    return await sql_registry.async_execute(
+    WHERE drone_uuid = :drone_uuid AND shutdown_time IS NULL"""
+    await sql_registry.async_execute(
         sql_query, dict(drone_uuid=drone_uuid, shutdown_time=shutdown_time)
     )
+    return drone_uuid

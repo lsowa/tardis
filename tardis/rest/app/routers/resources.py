@@ -71,24 +71,23 @@ async def drain_drone(
 
 
 @router.patch(
-    "/{drone_uuid}/shutdown_time",
-    description="Set the scheduled shutdown time of a drone",
+    "/shutdown_time",
+    description="Assign a shutdown time to the next drone waiting for one",
 )
-async def set_shutdown_time(
+async def assign_shutdown_time(
     body: ShutdownTime,
-    drone_uuid: str = Path(..., pattern=r"^\S+-[A-Fa-f0-9]{10}$"),
     sql_registry: SqliteRegistry = Depends(database.get_sql_registry()),
     _: AuthJWT = Security(security.check_authorization, scopes=[Resources.patch]),
 ):
-    if not await crud.get_resource_state(sql_registry, drone_uuid):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Drone not found"
-        )
-
     shutdown_time = body.shutdown_time
     if shutdown_time.tzinfo is not None:
         # TARDIS uses naive local timestamps (datetime.now()) throughout
         shutdown_time = shutdown_time.astimezone().replace(tzinfo=None)
 
-    await crud.set_shutdown_time(sql_registry, drone_uuid, shutdown_time)
-    return {"msg": f"shutdown_time set to {shutdown_time}"}
+    drone_uuid = await crud.assign_shutdown_time(sql_registry, shutdown_time)
+    if drone_uuid is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No drone waiting for a shutdown_time",
+        )
+    return {"msg": f"shutdown_time of {drone_uuid} set to {shutdown_time}"}

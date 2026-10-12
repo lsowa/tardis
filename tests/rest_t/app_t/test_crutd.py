@@ -160,20 +160,36 @@ class TestCRUD(TestCase):
             {"remote_resource_uuid": "14fa5640a7c146e482e8be41ec5dffea"},
         )
 
-    def test_set_shutdown_time(self):
+    def test_assign_shutdown_time(self):
         shutdown_time = datetime(2026, 10, 10, 18, 0, 0)
-        asyncio.run(
-            crud.set_shutdown_time(
-                sql_registry=self.sql_registry_mock,
-                drone_uuid="test-0125bc9fd8",
-                shutdown_time=shutdown_time,
-            )
+        self.sql_registry_mock.async_execute.side_effect = [
+            [{"drone_uuid": "test-0125bc9fd8"}],
+            [],
+        ]
+        self.assertEqual(
+            asyncio.run(
+                crud.assign_shutdown_time(
+                    sql_registry=self.sql_registry_mock, shutdown_time=shutdown_time
+                )
+            ),
+            "test-0125bc9fd8",
         )
-
-        self.sql_registry_mock.async_execute.assert_called_once_with(
+        self.sql_registry_mock.async_execute.assert_called_with(
             """
     UPDATE Resources
     SET shutdown_time = :shutdown_time
-    WHERE drone_uuid = :drone_uuid""",
+    WHERE drone_uuid = :drone_uuid AND shutdown_time IS NULL""",
             {"drone_uuid": "test-0125bc9fd8", "shutdown_time": shutdown_time},
         )
+
+        # no drone waiting
+        self.sql_registry_mock.async_execute.reset_mock()
+        self.sql_registry_mock.async_execute.side_effect = [[]]
+        self.assertIsNone(
+            asyncio.run(
+                crud.assign_shutdown_time(
+                    sql_registry=self.sql_registry_mock, shutdown_time=shutdown_time
+                )
+            )
+        )
+        self.sql_registry_mock.async_execute.assert_called_once()
