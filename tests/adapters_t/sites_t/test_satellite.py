@@ -1,11 +1,17 @@
 from tardis.adapters.sites.satellite import SatelliteAdapter
 from tardis.utilities.attributedict import AttributeDict
 from tardis.interfaces.siteadapter import ResourceStatus
-from tardis.exceptions.tardisexceptions import TardisResourceStatusUpdateFailed
+from tardis.exceptions.tardisexceptions import (
+    TardisAuthError,
+    TardisResourceStatusUpdateFailed,
+    TardisTimeout,
+)
+
+from aiohttp import ClientConnectionError, ClientResponseError
 
 from datetime import datetime
 from unittest import TestCase
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncio
 
@@ -442,6 +448,26 @@ class TestSatelliteAdapter(TestCase):
                 TardisResourceStatusUpdateFailed("no free host available"),
                 TardisResourceStatusUpdateFailed,
             ),
+            (
+                ClientResponseError(
+                    request_info=MagicMock(), history=(), status=500, message="error"
+                ),
+                TardisResourceStatusUpdateFailed,
+            ),
+            (
+                ClientResponseError(
+                    request_info=MagicMock(), history=(), status=401, message="error"
+                ),
+                TardisAuthError,
+            ),
+            (
+                ClientResponseError(
+                    request_info=MagicMock(), history=(), status=403, message="error"
+                ),
+                TardisAuthError,
+            ),
+            (ClientConnectionError(), TardisResourceStatusUpdateFailed),
+            (asyncio.TimeoutError(), TardisTimeout),
             (RuntimeError("unexpected satellite error"), RuntimeError),
         ]
 

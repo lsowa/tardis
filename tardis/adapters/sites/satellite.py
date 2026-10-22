@@ -7,7 +7,11 @@ from typing import Optional
 
 import aiohttp
 
-from tardis.exceptions.tardisexceptions import TardisResourceStatusUpdateFailed
+from tardis.exceptions.tardisexceptions import (
+    TardisAuthError,
+    TardisResourceStatusUpdateFailed,
+    TardisTimeout,
+)
 from tardis.interfaces.siteadapter import ResourceStatus, SiteAdapter
 from tardis.plugins.sqliteregistry import SqliteRegistry
 from tardis.utilities.attributedict import AttributeDict
@@ -363,15 +367,26 @@ class SatelliteAdapter(SiteAdapter):
     @contextmanager
     def handle_exceptions(self):
         """
-        Propagate Satellite-specific status failures unchanged. Especially if
-        no free host is available during deployment.
+        Translate Satellite API errors into TARDIS exceptions, so the drone
+        retries instead of crashing.
 
         :return: Context manager yielding control to the caller.
         """
         try:
             yield
-        except TardisResourceStatusUpdateFailed:
-            raise
+        except asyncio.TimeoutError as te:
+            raise TardisTimeout from te
+        except aiohttp.ClientResponseError as cre:
+            logger.warning(
+                f"Satellite API error: {cre.status} {cre.message} "
+                f"({cre.request_info.real_url})"
+            )
+            if cre.status in (401, 403):
+                raise TardisAuthError from cre
+            raise TardisResourceStatusUpdateFailed from cre
+        except aiohttp.ClientError as ce:
+            logger.warning(f"Satellite connection error: {ce!r}")
+            raise TardisResourceStatusUpdateFailed from ce
 
     def _resolve_status(
         self,
