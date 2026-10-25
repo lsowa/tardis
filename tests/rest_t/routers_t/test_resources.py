@@ -164,6 +164,93 @@ class TestResources(TestCaseRouters):
         )
         self.assertEqual(response.status_code, 403)
 
+    def test_get_shutdown_time(self):
+        self.clear_lru_cache()
+        self.mock_crud.get_shutdown_time = AsyncMock(
+            return_value=[
+                {
+                    "drone_uuid": "test-0125bc9fd8",
+                    "shutdown_time": datetime(2026, 10, 10, 18, 0, 0),
+                }
+            ]
+        )
+
+        response = asyncio.run(
+            self.client.get(
+                "/resources/14fa5640a7c146e482e8be41ec5dffea/shutdown_time",
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"drone_uuid": "test-0125bc9fd8", "shutdown_time": "2026-10-10T18:00:00"},
+        )
+
+        # drone without shutdown_time assigned
+        self.mock_crud.get_shutdown_time = AsyncMock(
+            return_value=[{"drone_uuid": "test-0125bc9fd8", "shutdown_time": None}]
+        )
+        response = asyncio.run(
+            self.client.get(
+                "/resources/14fa5640a7c146e482e8be41ec5dffea/shutdown_time",
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(), {"drone_uuid": "test-0125bc9fd8", "shutdown_time": None}
+        )
+
+        self.mock_crud.get_shutdown_time = AsyncMock(return_value=[])
+        response = asyncio.run(
+            self.client.get("/resources/nonexistent-uuid/shutdown_time")
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"detail": "Drone not found"})
+
+        # missing scope (JWT/cookie auth)
+        self.set_scopes(["resources:patch"])
+        self.login()
+        response = asyncio.run(
+            self.client.get(
+                "/resources/14fa5640a7c146e482e8be41ec5dffea/shutdown_time"
+            )
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_get_shutdown_time_basic_auth(self):
+        self.clear_lru_cache()
+        self.mock_crud.get_shutdown_time = AsyncMock(
+            return_value=[
+                {
+                    "drone_uuid": "test-0125bc9fd8",
+                    "shutdown_time": datetime(2026, 10, 10, 18, 0, 0),
+                }
+            ]
+        )
+
+        # valid Basic Auth credentials, no login/cookie involved
+        response = asyncio.run(
+            self.client.get(
+                "/resources/14fa5640a7c146e482e8be41ec5dffea/shutdown_time",
+                auth=(self.test_user["user_name"], self.test_user["password"]),
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"drone_uuid": "test-0125bc9fd8", "shutdown_time": "2026-10-10T18:00:00"},
+        )
+
+        # wrong password
+        self.clear_lru_cache()
+        response = asyncio.run(
+            self.client.get(
+                "/resources/14fa5640a7c146e482e8be41ec5dffea/shutdown_time",
+                auth=(self.test_user["user_name"], "wrong-password"),
+            )
+        )
+        self.assertEqual(response.status_code, 401)
+
     def test_drain_drone(self):
         self.clear_lru_cache()
         self.mock_crud.set_state_to_draining = AsyncMock()

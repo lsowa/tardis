@@ -60,6 +60,27 @@ async def get_drone_uuid(
     return query_result
 
 
+@router.get(
+    "/{remote_resource_uuid}/shutdown_time",
+    description="Get shutdown_time for a given remote_resource_uuid",
+)
+async def get_shutdown_time(
+    remote_resource_uuid: str = Path(...),
+    sql_registry: SqliteRegistry = Depends(database.get_sql_registry()),
+    _: AuthJWT = Security(
+        security.check_basic_or_jwt_authorization, scopes=[Resources.get]
+    ),
+):
+    query_result = await crud.get_shutdown_time(sql_registry, remote_resource_uuid)
+    try:
+        query_result = query_result[0]
+    except IndexError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Drone not found"
+        ) from None
+    return query_result
+
+
 @router.patch("/{drone_uuid}/drain", description="Gently shut shown drone")
 async def drain_drone(
     drone_uuid: str = Path(..., pattern=r"^\S+-[A-Fa-f0-9]{10}$"),

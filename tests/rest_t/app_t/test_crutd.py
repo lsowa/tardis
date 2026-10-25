@@ -160,6 +160,58 @@ class TestCRUD(TestCase):
             {"remote_resource_uuid": "14fa5640a7c146e482e8be41ec5dffea"},
         )
 
+    def test_get_shutdown_time(self):
+        shutdown_time = datetime(2026, 10, 10, 18, 0, 0)
+
+        async def mocked_async_execute(sql_query: str, bind_parameters: dict):
+            return_values = {
+                "14fa5640a7c146e482e8be41ec5dffea": [
+                    {"drone_uuid": "test-0125bc9fd8", "shutdown_time": shutdown_time}
+                ],
+                "nonexistent-uuid": [],
+            }
+            return return_values[bind_parameters["remote_resource_uuid"]]
+
+        self.sql_registry_mock.async_execute.side_effect = mocked_async_execute
+
+        self.assertEqual(
+            [],
+            asyncio.run(
+                crud.get_shutdown_time(
+                    sql_registry=self.sql_registry_mock,
+                    remote_resource_uuid="nonexistent-uuid",
+                )
+            ),
+        )
+
+        self.sql_registry_mock.async_execute.assert_called_with(
+            """
+    SELECT R.drone_uuid, R.shutdown_time
+    FROM Resources R
+    WHERE R.remote_resource_uuid = :remote_resource_uuid""",
+            {"remote_resource_uuid": "nonexistent-uuid"},
+        )
+
+        self.sql_registry_mock.reset_mock()
+
+        self.assertEqual(
+            [{"drone_uuid": "test-0125bc9fd8", "shutdown_time": shutdown_time}],
+            asyncio.run(
+                crud.get_shutdown_time(
+                    sql_registry=self.sql_registry_mock,
+                    remote_resource_uuid="14fa5640a7c146e482e8be41ec5dffea",
+                )
+            ),
+        )
+
+        self.sql_registry_mock.async_execute.assert_called_with(
+            """
+    SELECT R.drone_uuid, R.shutdown_time
+    FROM Resources R
+    WHERE R.remote_resource_uuid = :remote_resource_uuid""",
+            {"remote_resource_uuid": "14fa5640a7c146e482e8be41ec5dffea"},
+        )
+
     def test_assign_shutdown_time(self):
         shutdown_time = datetime(2026, 10, 10, 18, 0, 0)
         self.sql_registry_mock.async_execute.side_effect = [

@@ -58,8 +58,8 @@ REST Service
 
     .. note::
 
-        ``GET /resources/{remote_resource_uuid}/drone_uuid`` additionally accepts HTTP Basic Auth using the same
-        ``users`` credentials, so it can be called directly (e.g. ``curl -u user:pass ...``) without first
+        ``GET /resources/{remote_resource_uuid}/drone_uuid`` and ``GET /resources/{remote_resource_uuid}/shutdown_time``
+        additionally accept HTTP Basic Auth using the same ``users`` credentials, so it can be called directly (e.g. ``curl -u user:pass ...``) without first
         performing the ``/user/login`` step to obtain a JWT cookie.
 
     .. note::
