@@ -48,7 +48,7 @@ async def get_drone_uuid(sql_registry, remote_resource_uuid: str):
 
 async def get_shutdown_time(sql_registry, remote_resource_uuid: str):
     sql_query = """
-    SELECT R.drone_uuid, R.shutdown_time
+    SELECT R.shutdown_time
     FROM Resources R
     WHERE R.remote_resource_uuid = :remote_resource_uuid"""
     return await sql_registry.async_execute(

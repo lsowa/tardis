@@ -167,12 +167,7 @@ class TestResources(TestCaseRouters):
     def test_get_shutdown_time(self):
         self.clear_lru_cache()
         self.mock_crud.get_shutdown_time = AsyncMock(
-            return_value=[
-                {
-                    "drone_uuid": "test-0125bc9fd8",
-                    "shutdown_time": datetime(2026, 10, 10, 18, 0, 0),
-                }
-            ]
+            return_value=[{"shutdown_time": datetime(2026, 10, 10, 18, 0, 0)}]
         )
 
         response = asyncio.run(
@@ -181,14 +176,11 @@ class TestResources(TestCaseRouters):
             )
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {"drone_uuid": "test-0125bc9fd8", "shutdown_time": "2026-10-10T18:00:00"},
-        )
+        self.assertEqual(response.json(), {"shutdown_time": "2026-10-10T18:00:00"})
 
         # drone without shutdown_time assigned
         self.mock_crud.get_shutdown_time = AsyncMock(
-            return_value=[{"drone_uuid": "test-0125bc9fd8", "shutdown_time": None}]
+            return_value=[{"shutdown_time": None}]
         )
         response = asyncio.run(
             self.client.get(
@@ -196,9 +188,7 @@ class TestResources(TestCaseRouters):
             )
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(), {"drone_uuid": "test-0125bc9fd8", "shutdown_time": None}
-        )
+        self.assertEqual(response.json(), {"shutdown_time": None})
 
         self.mock_crud.get_shutdown_time = AsyncMock(return_value=[])
         response = asyncio.run(
@@ -220,12 +210,7 @@ class TestResources(TestCaseRouters):
     def test_get_shutdown_time_basic_auth(self):
         self.clear_lru_cache()
         self.mock_crud.get_shutdown_time = AsyncMock(
-            return_value=[
-                {
-                    "drone_uuid": "test-0125bc9fd8",
-                    "shutdown_time": datetime(2026, 10, 10, 18, 0, 0),
-                }
-            ]
+            return_value=[{"shutdown_time": datetime(2026, 10, 10, 18, 0, 0)}]
         )
 
         # valid Basic Auth credentials, no login/cookie involved
@@ -236,10 +221,7 @@ class TestResources(TestCaseRouters):
             )
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {"drone_uuid": "test-0125bc9fd8", "shutdown_time": "2026-10-10T18:00:00"},
-        )
+        self.assertEqual(response.json(), {"shutdown_time": "2026-10-10T18:00:00"})
 
         # wrong password
         self.clear_lru_cache()

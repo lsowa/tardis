@@ -51,7 +51,8 @@ REST Service
 
     The :py:class:`~tardis.rest.service.RestService` provides a REST API to access the information stored about managed
     ``Drones`` inside the :py:class:`~tardis.plugins.sqliteregistry.SqliteRegistry` plugin. Currently it allows to
-    list all managed resources, to get the state of a particular resource, to drain a resource and to assign a
+    list all managed resources, to get the state of a particular resource, to look up the ``drone_uuid`` and the
+    scheduled shutdown time of a resource by its ``remote_resource_uuid``, to drain a resource and to assign a
     scheduled shutdown time to a waiting resource. All supported REST API calls and their parameters are described
     in REST API documentation available on ``http://<hostname>:<port>/docs`` after starting the service. The REST
     service is using JSON Web Token (JWT) and OAuth2 scopes for authentication and authorization.

@@ -165,9 +165,7 @@ class TestCRUD(TestCase):
 
         async def mocked_async_execute(sql_query: str, bind_parameters: dict):
             return_values = {
-                "14fa5640a7c146e482e8be41ec5dffea": [
-                    {"drone_uuid": "test-0125bc9fd8", "shutdown_time": shutdown_time}
-                ],
+                "14fa5640a7c146e482e8be41ec5dffea": [{"shutdown_time": shutdown_time}],
                 "nonexistent-uuid": [],
             }
             return return_values[bind_parameters["remote_resource_uuid"]]
@@ -186,7 +184,7 @@ class TestCRUD(TestCase):
 
         self.sql_registry_mock.async_execute.assert_called_with(
             """
-    SELECT R.drone_uuid, R.shutdown_time
+    SELECT R.shutdown_time
     FROM Resources R
     WHERE R.remote_resource_uuid = :remote_resource_uuid""",
             {"remote_resource_uuid": "nonexistent-uuid"},
@@ -195,7 +193,7 @@ class TestCRUD(TestCase):
         self.sql_registry_mock.reset_mock()
 
         self.assertEqual(
-            [{"drone_uuid": "test-0125bc9fd8", "shutdown_time": shutdown_time}],
+            [{"shutdown_time": shutdown_time}],
             asyncio.run(
                 crud.get_shutdown_time(
                     sql_registry=self.sql_registry_mock,
@@ -206,7 +204,7 @@ class TestCRUD(TestCase):
 
         self.sql_registry_mock.async_execute.assert_called_with(
             """
-    SELECT R.drone_uuid, R.shutdown_time
+    SELECT R.shutdown_time
     FROM Resources R
     WHERE R.remote_resource_uuid = :remote_resource_uuid""",
             {"remote_resource_uuid": "14fa5640a7c146e482e8be41ec5dffea"},
