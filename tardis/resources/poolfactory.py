@@ -12,7 +12,8 @@ from cobald.composite.weighted import WeightedComposite
 from cobald.composite.factory import FactoryPool
 from cobald.decorator.standardiser import Standardiser
 from cobald.decorator.logger import Logger
-from cobald.utility.primitives import infinity as inf
+#from cobald.utility.primitives import infinity as inf
+inf = float("inf") #ungly hotfix
 
 from functools import partial
 from importlib import import_module
